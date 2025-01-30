@@ -52,7 +52,7 @@ cd hashbreaker
 
 2. Install the required Python packages:
 ```bash
-pip install flask psutil
+pip install -r requirements.txt
 ```
 
 3. Configure your paths in the administration panel (⚙️) or directly in `config.json`:
