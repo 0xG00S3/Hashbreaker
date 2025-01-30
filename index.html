@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hashcat Control Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link href="styles.css" rel="stylesheet" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>
+            <img src="images/hashcat.png" alt="HashBreaker" style="height: 150px; width: auto; vertical-align: middle;">
+        </h1>
+        
+        <div class="control-panel">
+            <div class="admin-panel">
+                <button onclick="toggleAdminPanel()" class="admin-toggle">
+                    ⚙️ Administration Panel
+                </button>
+                <div id="adminContent" class="admin-content" style="display: none;">
+                    <h3 style="color: var(--accent); margin-top: 0;">Directory Configuration</h3>
+                    <div class="path-config">
+                        <div class="path-item">
+                            <label><strong>Hashcat Executable:</strong></label>
+                            <div class="path-input">
+                                <input type="text" id="hashcatPath" placeholder="Path to hashcat.exe">
+                                <button onclick="selectFile('hashcatPath', 'exe')" type="button">Browse</button>
+                            </div>
+                        </div>
+                        <div class="path-item">
+                            <label><strong>Wordlists Directory:</strong></label>
+                            <div class="path-input">
+                                <input type="text" id="wordlistsPath" placeholder="Path to wordlists folder">
+                                <button onclick="selectDirectory('wordlistsPath')" type="button">Browse</button>
+                            </div>
+                        </div>
+                        <div class="path-item">
+                            <label><strong>Rules Directory:</strong></label>
+                            <div class="path-input">
+                                <input type="text" id="rulesPath" placeholder="Path to rules folder">
+                                <button onclick="selectDirectory('rulesPath')" type="button">Browse</button>
+                            </div>
+                        </div>
+                        <div class="path-item">
+                            <label><strong>Hash Types File:</strong></label>
+                            <div class="path-input">
+                                <input type="text" id="hashTypesPath" placeholder="Path to hash_types.txt">
+                                <button onclick="selectFile('hashTypesPath', 'txt')" type="button">Browse</button>
+                            </div>
+                        </div>
+                        <div class="path-item">
+                            <label><strong>Potfile Location:</strong></label>
+                            <div class="path-input">
+                                <input type="text" id="potfilePath" placeholder="Path to hashcat.potfile">
+                                <button onclick="selectFile('potfilePath', 'potfile')" type="button">Browse</button>
+                                <button onclick="clearPotfile()" type="button" style="background-color: var(--danger);">Clear Potfile</button>
+                            </div>
+                        </div>
+                        <div class="path-item">
+                            <label><strong>Temporary Files Directory:</strong></label>
+                            <div class="path-input">
+                                <input type="text" id="tempPath" placeholder="Path for temporary hash files">
+                                <button onclick="selectDirectory('tempPath')" type="button">Browse</button>
+                            </div>
+                        </div>
+                        <div class="path-item">
+                            <label><strong>Workload Profile (-w):</strong></label>
+                            <div class="path-input">
+                                <select id="workMode" style="width: auto; min-width: 200px;" onchange="updateCommandPreview()">
+                                    <option value="0">0 - Low</option>
+                                    <option value="1">1 - Default</option>
+                                    <option value="2" selected>2 - High</option>
+                                    <option value="3">3 - Insane</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="admin-actions">
+                        <button onclick="saveConfiguration()" style="background-color: var(--accent);">Save Configuration</button>
+                        <button onclick="loadConfiguration()" style="background-color: var(--bg-dark); border: 1px solid var(--accent); color: var(--text-primary);">Reset to Saved</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="hash-type-selector">
+                <select id="hashType" class="select2-searchable">
+                    <option value="">Search for hash type...</option>
+                </select>
+                <div class="hash-mode-input">
+                    <input type="number" id="hashModeInput" placeholder="Mode #" min="0">
+                    <span>or search above</span>
+                </div>
+            </div>
+
+            <div class="hash-input">
+                <textarea id="hashInput" placeholder="Enter your hashes here (one per line) or drag and drop a file"></textarea>
+                <div class="drag-message">Drop file here</div>
+                <button onclick="saveHashesToFile()" style="margin-top: 10px;">Save Hashes to File</button>
+                <div id="savedFilePath" style="color: var(--accent); margin-top: 5px; font-size: 0.9em; font-weight: bold;"></div>
+            </div>
+
+            <div class="file-upload">
+                <label class="custom-file-upload">
+                    <input type="file" id="hashFile" style="display:none;">
+                    Upload Hash File
+                </label>
+                <span id="fileName"></span>
+            </div>
+
+            <div class="wordlist-selector" style="margin-bottom: 20px;">
+                <select id="wordlist">
+                    <option value="">Select Wordlist</option>
+                </select>
+            </div>
+
+            <div class="ruleset-selector" style="margin-bottom: 20px;">
+                <select id="ruleset">
+                    <option value="">Select Ruleset (Optional)</option>
+                </select>
+            </div>
+
+            <div class="command-preview" style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 5px; color: var(--accent);"><strong>Command Preview:</strong></label>
+                <textarea id="commandPreview" placeholder="Command will appear here..."></textarea>
+            </div>
+
+            <div class="button-group" style="display: flex; gap: 10px;">
+                <button onclick="runHashcat()" id="startButton" style="color: #000000;">Start Cracking</button>
+                <button onclick="stopHashcat()" id="stopButton" style="background-color: var(--danger); color: var(--text-primary);" disabled>Stop Cracking</button>
+            </div>
+        </div>
+
+        <div class="cracked-hashes" id="crackedHashes">
+            <div class="cracked-header">
+                <h3 class="header-with-button">
+                    Cracked Hashes
+                    <div class="button-group">
+                        <button onclick="saveCrackedHashes()" class="save-button">💾 Save to File</button>
+                        <button onclick="generateReport()" class="save-button">📊 Generate Report</button>
+                    </div>
+                </h3>
+            </div>
+            <div class="cracked-content" id="crackedHashesList"></div>
+        </div>
+
+        <div class="status-pane" id="statusPane">
+            <div class="status"><strong>Status: <span id="crackingStatus">Idle</span></strong></div>
+            <div class="progress">Successfully Cracked: <span id="crackedCount">0</span> of <span id="totalHashes">0</span> hashes</div>
+            <div class="performance-metrics" id="performanceMetrics">
+                <div class="metric">Speed: <span id="hashSpeed">0 H/s</span></div>
+                <div class="metric">Estimated Time: <span id="estimatedTime">--:--:--</span></div>
+                <div class="metric">Progress: <span id="progressPercent">0.00%</span></div>
+                <div class="metric">Device Temp: <span id="deviceTemp">N/A</span></div>
+            </div>
+            <div class="recent-crack" id="recentCrack"></div>
+        </div>
+
+        <div class="output-window" id="outputWindow">
+            <div class="output-header">
+                <h3 class="header-with-button">
+                    Hashcat Output
+                    <div class="button-group">
+                        <button onclick="saveHashcatOutput()" class="save-button">💾 Save to File</button>
+                        <button onclick="clearHashcatOutput()" class="save-button">🗑️ Clear</button>
+                        <button onclick="scrollOutputTop()" class="save-button">⬆️ Top</button>
+                        <button onclick="scrollOutputBottom()" class="save-button">⬇️ Bottom</button>
+                    </div>
+                </h3>
+            </div>
+            <div class="output-content" id="outputContent">
+                <div class="output-line info">Welcome to the HashBreaker Control Panel</div>
+                <div class="output-line info">Select a hash type and input your hashes to begin...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="reportModal" class="report-modal">
+        <div class="report-content">
+            <span class="report-close" onclick="closeReport()">&times;</span>
+            <div class="button-group" style="position: absolute; top: 10px; right: 50px;">
+                <button onclick="generateDocument()" class="save-button">📄 Generate Document</button>
+            </div>
+            <div id="reportContent"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentHashFile = null;
+        let isRunning = false;
+        let hashTypes = {};  // Store hash types globally
+
+        // Load all options on page load
+        Promise.all([
+            fetch('/api/hash_types').then(response => response.json()),
+            fetch('/api/wordlists').then(response => response.json()),
+            fetch('/api/rules').then(response => response.json())
+        ]).then(([types, wordlists, rules]) => {
+            hashTypes = types;  // Store hash types globally
+            
+            // Populate hash types
+            const hashTypeSelect = $('#hashType');
+            hashTypeSelect.empty().append('<option value="">Search for hash type...</option>');
+
+            // Group hash types by category
+            const categories = {};
+            Object.entries(types).forEach(([id, info]) => {
+                if (!categories[info.category]) {
+                    categories[info.category] = [];
+                }
+                categories[info.category].push({id, ...info});
+            });
+
+            // Add hash types grouped by category
+            Object.entries(categories).sort((a, b) => a[0].localeCompare(b[0])).forEach(([category, hashes]) => {
+                const optgroup = $('<optgroup>').attr('label', category);
+                
+                hashes.sort((a, b) => a.name.localeCompare(b.name)).forEach(hash => {
+                    optgroup.append($('<option>')
+                        .val(hash.id)
+                        .text(`${hash.name} (${hash.id}) - Example: ${hash.example}`));
+                });
+
+                hashTypeSelect.append(optgroup);
+            });
+
+            // Initialize Select2 with enhanced configuration
+            hashTypeSelect.select2({
+                theme: 'default',
+                placeholder: 'Search for hash type...',
+                allowClear: true,
+                width: '100%',
+                matcher: function(params, data) {
+                    // If there are no search terms, return all options
+                    if ($.trim(params.term) === '') {
+                        return data;
+                    }
+
+                    // Keep optgroups
+                    if (data.children) {
+                        const filteredChildren = data.children.filter(child => {
+                            const text = child.text.toLowerCase();
+                            const searchStr = params.term.toLowerCase();
+                            return text.indexOf(searchStr) > -1;
+                        });
+
+                        if (filteredChildren.length > 0) {
+                            return {
+                                ...data,
+                                children: filteredChildren
+                            };
+                        }
+                        return null;
+                    }
+
+                    const text = data.text.toLowerCase();
+                    const searchStr = params.term.toLowerCase();
+                    
+                    // Search in name, mode ID, and example hash
+                    if (text.indexOf(searchStr) > -1) {
+                        return data;
+                    }
+
+                    return null;
+                }
+            });
+
+            // Set default hash type to NTLM (mode 1000)
+            hashTypeSelect.val('1000').trigger('change');
+            $('#hashModeInput').val('1000').css('border-color', 'var(--accent)');
+
+            // Handle hash mode direct input with enhanced functionality
+            $('#hashModeInput').on('input', function() {
+                const modeId = this.value;
+                if (modeId in types) {
+                    hashTypeSelect.val(modeId).trigger('change');
+                    // Show a success indicator
+                    $(this).css('border-color', 'var(--accent)');
+                } else {
+                    // Show a neutral state
+                    $(this).css('border-color', 'var(--text-primary)');
+                }
+            });
+
+            // Handle hash type select change
+            hashTypeSelect.on('change', function() {
+                const modeId = this.value;
+                const hashModeInput = $('#hashModeInput');
+                if (modeId) {
+                    hashModeInput.val(modeId);
+                    hashModeInput.css('border-color', 'var(--accent)');
+                } else {
+                    hashModeInput.val('');
+                    hashModeInput.css('border-color', 'var(--text-primary)');
+                }
+                updateCommandPreview();
+            });
+
+            // Populate wordlists
+            const wordlistSelect = document.getElementById('wordlist');
+            wordlistSelect.innerHTML = '<option value="">Select Wordlist</option>';
+            wordlists.forEach(wordlist => {
+                const option = document.createElement('option');
+                option.value = wordlist;
+                option.textContent = wordlist;
+                wordlistSelect.appendChild(option);
+            });
+
+            // Populate rulesets
+            const rulesetSelect = document.getElementById('ruleset');
+            rulesetSelect.innerHTML = '<option value="">Select Ruleset (Optional)</option>';
+            rules.forEach(rule => {
+                const option = document.createElement('option');
+                option.value = rule;
+                option.textContent = rule;
+                rulesetSelect.appendChild(option);
+            });
+
+            // Add change listeners for command preview
+            [hashTypeSelect, wordlistSelect, rulesetSelect].forEach(select => {
+                $(select).on('change', updateCommandPreview);
+            });
+
+            // Initial command preview update
+            updateCommandPreview();
+        }).catch(error => {
+            addOutputLine('Failed to load options: ' + error.message, 'error');
+        });
+
+        function updateCommandPreview() {
+            const hashType = document.getElementById('hashType').value;
+            const wordlist = document.getElementById('wordlist').value;
+            const ruleset = document.getElementById('ruleset').value;
+            const workMode = document.getElementById('workMode').value;
+            
+            if (!hashType || !wordlist) return;
+
+            // Sanitize inputs
+            const sanitizedHashType = hashType.replace(/[^0-9]/g, '');
+            const sanitizedWorkMode = workMode.replace(/[^0-9]/g, '');
+            const sanitizedWordlist = wordlist.replace(/[^a-zA-Z0-9._-]/g, '');
+            const sanitizedRuleset = ruleset ? ruleset.replace(/[^a-zA-Z0-9._-]/g, '') : '';
+
+            let hashPath;
+            if (currentHashFile) {
+                hashPath = currentHashFile;  // Use the full path from saved file
+            } else {
+                const hashFile = document.getElementById('hashFile').files[0];
+                hashPath = hashFile ? hashFile.name : '{NO HASH FILE - CLICK SAVE HASHES FIRST}';
+            }
+
+            // Build command with sanitized inputs
+            let cmd = `hashcat.exe -w ${sanitizedWorkMode} -m ${sanitizedHashType} -a 0 --status --hwmon-disable -O ${hashPath} wordlists/${sanitizedWordlist}`;
+            if (sanitizedRuleset) {
+                cmd += ` -r rules/${sanitizedRuleset}`;
+            }
+
+            document.getElementById('commandPreview').value = cmd;
+        }
+
+        async function saveHashesToFile() {
+            const hashInput = document.getElementById('hashInput').value;
+            if (!hashInput.trim()) {
+                addOutputLine('Please enter hashes first!', 'error');
+                return;
+            }
+
+            try {
+                addOutputLine('Saving hashes to temporary file...', 'info');
+                const savedFile = await saveHashes(hashInput);
+                currentHashFile = savedFile;
+                document.getElementById('savedFilePath').textContent = `Saved to: ${savedFile}`;
+                addOutputLine('Hashes saved successfully!', 'success');
+                const hashCount = hashInput.split('\n').filter(line => line.trim()).length;
+                updateCrackingStatus(0, hashCount);
+                updateCommandPreview();  // Update the command preview with new hash file
+            } catch (error) {
+                addOutputLine('Error saving hashes: ' + error.message, 'error');
+            }
+        }
+
+        // Update hash file handling
+        document.getElementById('hashFile').addEventListener('change', function(e) {
+            const fileName = e.target.files[0]?.name;
+            document.getElementById('fileName').textContent = fileName || '';
+            currentHashFile = null; // Reset current hash file when uploading
+            document.getElementById('savedFilePath').textContent = '';
+            
+            if (fileName) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const content = e.target.result;
+                    document.getElementById('hashInput').value = content;
+                    // Update hash count based on non-empty lines
+                    const hashCount = content.split('\n').filter(line => line.trim()).length;
+                    updateCrackingStatus(0, hashCount);
+                    updateCommandPreview();  // Update command preview when file is uploaded
+                };
+                reader.readAsText(e.target.files[0]);
+            }
+        });
+
+        // Update hash input change handling to update counter
+        document.getElementById('hashInput').addEventListener('input', function() {
+            // Reset the saved file path when input changes
+            currentHashFile = null;
+            document.getElementById('savedFilePath').textContent = '';
+            // Update hash count based on non-empty lines
+            const hashCount = this.value.split('\n').filter(line => line.trim()).length;
+            updateCrackingStatus(0, hashCount);
+            updateCommandPreview();
+        });
+
+        function addOutputLine(text, type = 'info') {
+            const outputContent = document.getElementById('outputContent');
+            const line = document.createElement('div');
+            line.className = `output-line ${type}`;
+            line.textContent = text;
+            outputContent.appendChild(line);
+            outputContent.scrollTop = outputContent.scrollHeight;
+
+            // Check if the line contains performance metrics
+            if (text.includes('Speed.#1') || text.includes('Progress') || text.includes('Temperature')) {
+                updatePerformanceMetrics(text);
+            }
+        }
+
+        async function saveHashes(hashes) {
+            const response = await fetch('/api/save_hashes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ hashes })
+            });
+            const data = await response.json();
+            if (data.error) throw new Error(data.error);
+            return data.file;
+        }
+
+        async function stopHashcat() {
+            try {
+                const response = await fetch('/api/stop_hashcat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                const data = await response.json();
+                if (data.status === 'success') {
+                    addOutputLine('Hashcat stopped successfully', 'success');
+                } else {
+                    addOutputLine('Error stopping hashcat: ' + data.message, 'error');
+                }
+            } catch (error) {
+                addOutputLine('Error stopping hashcat: ' + error.message, 'error');
+            } finally {
+                isRunning = false;
+                updateButtons();
+                updateCrackingStatus(0, 0);  // Reset status to idle
+            }
+        }
+
+        function updateButtons() {
+            document.getElementById('startButton').disabled = isRunning;
+            document.getElementById('stopButton').disabled = !isRunning;
+        }
+
+        async function runHashcat() {
+            const hashType = document.getElementById('hashType').value;
+            const hashInput = document.getElementById('hashInput').value;
+            const wordlist = document.getElementById('wordlist').value;
+            const ruleset = document.getElementById('ruleset').value;
+            const customCommand = document.getElementById('commandPreview').value;
+            const hashFile = document.getElementById('hashFile').files[0];
+
+            if (!hashType) {
+                addOutputLine('Please select a hash type!', 'error');
+                return;
+            }
+
+            if (!hashInput.trim() && !hashFile) {
+                addOutputLine('Please enter hashes or upload a file!', 'error');
+                return;
+            }
+
+            if (!wordlist) {
+                addOutputLine('Please select a wordlist!', 'error');
+                return;
+            }
+
+            if (!hashFile && !currentHashFile) {
+                addOutputLine('Please save hashes to a file first!', 'error');
+                return;
+            }
+
+            // Clear previous output content only
+            const outputContent = document.getElementById('outputContent');
+            outputContent.innerHTML = '';
+            document.getElementById('crackedHashesList').innerHTML = '';
+            
+            const hashCount = hashInput.trim().split('\n').filter(line => line.trim()).length;
+            isRunning = true;
+            updateButtons();
+            updateCrackingStatus(0, hashCount);
+
+            addOutputLine('Starting Hashcat...', 'info');
+            addOutputLine('Using command: ' + customCommand, 'info');
+
+            try {
+                const response = await fetch('/api/run_hashcat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        hashType: hashType,
+                        hashes: hashInput,
+                        wordlist: wordlist,
+                        ruleset: ruleset || null,
+                        customCommand: customCommand,
+                        hashFile: currentHashFile
+                    })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const {value, done} = await reader.read();
+                    if (done) break;
+                    
+                    const text = decoder.decode(value);
+                    const lines = text.split('\n');
+                    
+                    lines.forEach(line => {
+                        if (line.trim()) {
+                            try {
+                                const data = JSON.parse(line);
+                                if (data.type === 'cracked') {
+                                    addCrackedHash(data.data);
+                                } else {
+                                    addOutputLine(data.data, data.type);
+                                }
+                            } catch (e) {
+                                console.error('Error parsing line:', line, e);
+                                addOutputLine(line, 'info');
+                            }
+                        }
+                    });
+                }
+            } catch (error) {
+                addOutputLine('Error: ' + error.message, 'error');
+            } finally {
+                isRunning = false;
+                updateButtons();
+                updateCrackingStatus(document.getElementById('crackedCount').textContent, document.getElementById('totalHashes').textContent);
+            }
+        }
+
+        function addCrackedHash(hash) {
+            const crackedHashesList = document.getElementById('crackedHashesList');
+            const hashElement = document.createElement('div');
+            hashElement.className = 'cracked-hash';
+            hashElement.textContent = hash;
+            crackedHashesList.appendChild(hashElement);
+            crackedHashesList.scrollTop = crackedHashesList.scrollHeight;
+
+            // Add success message to output window
+            addOutputLine(`SUCCESSFULLY CRACKED HASH!! - ${hash}`, 'success');
+
+            // Update status
+            const crackedCount = crackedHashesList.children.length;
+            const totalHashes = document.getElementById('totalHashes').textContent;
+            updateCrackingStatus(crackedCount, totalHashes);
+
+            // Show temporary success message
+            const recentCrack = document.getElementById('recentCrack');
+            recentCrack.textContent = `Just Cracked: ${hash}`;
+            recentCrack.classList.add('show');
+            
+            // Remove message after 5 seconds
+            setTimeout(() => {
+                recentCrack.classList.remove('show');
+            }, 5000);
+        }
+
+        // Add these new functions for the admin panel
+        function toggleAdminPanel() {
+            const adminContent = document.getElementById('adminContent');
+            adminContent.style.display = adminContent.style.display === 'none' ? 'block' : 'none';
+        }
+
+        async function selectFile(inputId, fileType) {
+            try {
+                console.log(`Selecting file for ${inputId} of type ${fileType}`);
+                const response = await fetch('/api/file_dialog', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        type: fileType,
+                        inputId: inputId
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (data.path) {
+                    // Normalize path to use Windows backslashes
+                    const normalizedPath = data.path.replace(/\//g, '\\');
+                    document.getElementById(inputId).value = normalizedPath;
+                    addOutputLine(`Selected file: ${normalizedPath}`, 'success');
+                } else if (data.error) {
+                    throw new Error(data.error);
+                }
+            } catch (error) {
+                console.error('Error selecting file:', error);
+                addOutputLine(`Error selecting file: ${error.message}`, 'error');
+            }
+        }
+
+        async function selectDirectory(inputId) {
+            try {
+                console.log(`Selecting directory for ${inputId}`);
+                const response = await fetch('/api/directory_dialog', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ inputId: inputId })
+                });
+                
+                console.log('Response status:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (data.path) {
+                    // Normalize path to use Windows backslashes
+                    const normalizedPath = data.path.replace(/\//g, '\\');
+                    document.getElementById(inputId).value = normalizedPath;
+                    addOutputLine(`Selected directory: ${normalizedPath}`, 'success');
+                } else if (data.error) {
+                    throw new Error(data.error);
+                }
+            } catch (error) {
+                console.error('Error selecting directory:', error);
+                addOutputLine(`Error selecting directory: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadConfiguration() {
+            try {
+                const response = await fetch('/api/get_config');
+                const config = await response.json();
+                document.getElementById('hashcatPath').value = config.hashcatPath || '';
+                document.getElementById('wordlistsPath').value = config.wordlistsPath || '';
+                document.getElementById('rulesPath').value = config.rulesPath || '';
+                document.getElementById('hashTypesPath').value = config.hashTypesPath || '';
+                document.getElementById('potfilePath').value = config.potfilePath || '';
+                document.getElementById('tempPath').value = config.tempPath || '';
+                document.getElementById('workMode').value = config.workloadProfile || '2';
+                addOutputLine('Configuration loaded', 'info');
+                updateCommandPreview();  // Update command preview with new workload
+            } catch (error) {
+                addOutputLine('Error loading configuration: ' + error.message, 'error');
+            }
+        }
+
+        async function saveConfiguration() {
+            const config = {
+                hashcatPath: document.getElementById('hashcatPath').value.trim(),
+                wordlistsPath: document.getElementById('wordlistsPath').value.trim(),
+                rulesPath: document.getElementById('rulesPath').value.trim(),
+                hashTypesPath: document.getElementById('hashTypesPath').value.trim(),
+                potfilePath: document.getElementById('potfilePath').value.trim(),
+                tempPath: document.getElementById('tempPath').value.trim(),
+                workloadProfile: document.getElementById('workMode').value
+            };
+
+            // Validate paths
+            if (!config.hashcatPath) {
+                addOutputLine('Hashcat executable path is required', 'error');
+                return;
+            }
+            if (!config.wordlistsPath) {
+                addOutputLine('Wordlists directory path is required', 'error');
+                return;
+            }
+            if (!config.rulesPath) {
+                addOutputLine('Rules directory path is required', 'error');
+                return;
+            }
+            if (!config.hashTypesPath) {
+                addOutputLine('Hash types file path is required', 'error');
+                return;
+            }
+            if (!config.potfilePath) {
+                addOutputLine('Potfile path is required', 'error');
+                return;
+            }
+            if (!config.tempPath) {
+                addOutputLine('Temporary files directory path is required', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/save_config', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(config)
+                });
+                const data = await response.json();
+                if (data.success) {
+                    addOutputLine('Configuration saved successfully', 'success');
+                    // Reload the page to apply new configuration
+                    location.reload();
+                } else {
+                    addOutputLine('Error saving configuration: ' + data.error, 'error');
+                }
+            } catch (error) {
+                addOutputLine('Error saving configuration: ' + error.message, 'error');
+            }
+        }
+
+        async function clearPotfile() {
+            if (!confirm('Are you sure you want to clear the potfile? This will delete all previously cracked hashes.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/clear_potfile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                const data = await response.json();
+                if (data.success) {
+                    addOutputLine('Potfile cleared successfully', 'success');
+                } else {
+                    addOutputLine('Error clearing potfile: ' + data.error, 'error');
+                }
+            } catch (error) {
+                addOutputLine('Error clearing potfile: ' + error.message, 'error');
+            }
+        }
+
+        // Load configuration when page loads
+        document.addEventListener('DOMContentLoaded', loadConfiguration);
+
+        async function saveHashcatOutput() {
+            const outputWindow = document.getElementById('outputWindow');
+            const outputText = Array.from(outputWindow.children)
+                .map(line => line.textContent)
+                .join('\n');
+            
+            const blob = new Blob([outputText], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'hashcat_output.txt';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+
+        async function saveCrackedHashes() {
+            const crackedList = document.getElementById('crackedHashesList');
+            const crackedText = Array.from(crackedList.children)
+                .map(line => line.textContent)
+                .join('\n');
+            
+            const blob = new Blob([crackedText], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'cracked_hashes.txt';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        }
+
+        function updateCrackingStatus(cracked, total) {
+            const statusPane = document.getElementById('statusPane');
+            const crackedCount = document.getElementById('crackedCount');
+            const totalHashes = document.getElementById('totalHashes');
+            const crackingStatus = document.getElementById('crackingStatus');
+            
+            crackedCount.textContent = cracked;
+            totalHashes.textContent = total;
+            crackingStatus.textContent = isRunning ? 'Running' : 'Idle';
+            crackingStatus.className = isRunning ? 'status-running' : '';
+        }
+
+        // Add status initialization when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            loadConfiguration();
+            updateCrackingStatus(0, 0);  // Initialize status as idle
+        });
+
+        function clearHashcatOutput() {
+            const outputContent = document.getElementById('outputContent');
+            outputContent.innerHTML = '';
+            addOutputLine('Output cleared', 'info');
+        }
+
+        function scrollOutputTop() {
+            const outputContent = document.getElementById('outputContent');
+            outputContent.scrollTop = 0;
+        }
+
+        function scrollOutputBottom() {
+            const outputContent = document.getElementById('outputContent');
+            outputContent.scrollTop = outputContent.scrollHeight;
+        }
+
+        function updatePerformanceMetrics(data) {
+            // Parse speed (e.g., "2345.6 MH/s" or "123.4 kH/s")
+            const speedMatch = data.match(/Speed\.#1\.\.+:\s+([0-9.]+)\s*([kmgtKMGT]?H\/s)/i);
+            if (speedMatch) {
+                const [, speed, unit] = speedMatch;
+                document.getElementById('hashSpeed').textContent = `${speed} ${unit}`;
+            }
+
+            // Parse progress
+            const progressMatch = data.match(/Progress\.+:\s+([0-9]+)\/([0-9]+)\s+\(([0-9.]+)%\)/i);
+            if (progressMatch) {
+                const [, current, total, percent] = progressMatch;
+                document.getElementById('progressPercent').textContent = `${percent}%`;
+                
+                // Calculate estimated time remaining
+                const timeMatch = data.match(/Time\.Estimated\.+:\s+([0-9]+:[0-9]+:[0-9]+)/i);
+                if (timeMatch) {
+                    document.getElementById('estimatedTime').textContent = timeMatch[1];
+                }
+            }
+
+            // Parse temperature
+            const tempMatch = data.match(/Temperature\.#1\.+:\s+([0-9]+)C/i);
+            if (tempMatch) {
+                document.getElementById('deviceTemp').textContent = `${tempMatch[1]}°C`;
+            }
+        }
+
+        // Setup drag and drop functionality
+        function setupDragAndDrop() {
+            const hashInput = document.getElementById('hashInput');
+            
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                hashInput.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                hashInput.addEventListener(eventName, highlight, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                hashInput.addEventListener(eventName, unhighlight, false);
+            });
+
+            function highlight(e) {
+                hashInput.classList.add('dragover');
+            }
+
+            function unhighlight(e) {
+                hashInput.classList.remove('dragover');
+            }
+
+            hashInput.addEventListener('drop', handleDrop, false);
+
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+
+                handleFiles(files);
+            }
+
+            function handleFiles(files) {
+                if (files.length > 0) {
+                    const file = files[0];
+                    const reader = new FileReader();
+                    
+                    reader.onload = function(e) {
+                        hashInput.value = e.target.result;
+                        // Trigger the input event to update hash count
+                        hashInput.dispatchEvent(new Event('input'));
+                        addOutputLine(`Loaded ${file.name} successfully`, 'success');
+                    };
+                    
+                    reader.onerror = function(e) {
+                        addOutputLine(`Error reading file: ${e.target.error}`, 'error');
+                    };
+
+                    reader.readAsText(file);
+                }
+            }
+        }
+
+        // Initialize drag and drop when the document is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            setupDragAndDrop();
+            loadConfiguration();
+            updateCrackingStatus(0, 0);
+        });
+
+        function generateReport() {
+            const now = new Date();
+            const elapsedTime = document.getElementById('estimatedTime').textContent;
+            const hashSpeed = document.getElementById('hashSpeed').textContent;
+            const progress = document.getElementById('progressPercent').textContent;
+            const deviceTemp = document.getElementById('deviceTemp').textContent;
+            const crackedCount = parseInt(document.getElementById('crackedCount').textContent) || 0;
+            const totalHashes = parseInt(document.getElementById('totalHashes').textContent) || 0;
+            
+            const hashType = document.getElementById('hashType');
+            const selectedHashType = hashType.options[hashType.selectedIndex]?.text || 'N/A';
+            const wordlist = document.getElementById('wordlist').value || 'N/A';
+            const ruleset = document.getElementById('ruleset').value || 'None';
+
+            // Calculate success rate with validation
+            let successRate = '0.00';
+            if (totalHashes > 0 && crackedCount > 0) {
+                successRate = ((crackedCount / totalHashes) * 100).toFixed(2);
+            }
+
+            // Format time elapsed
+            const displayedTime = elapsedTime === '--:--:--' ? 'In Progress' : elapsedTime;
+
+            const reportHtml = `
+                <div class="report-header">
+                    <h2>HashBreaker Cracking Report</h2>
+                    <p>Generated on ${now.toLocaleString()}</p>
+                </div>
+
+                <div class="report-section">
+                    <h3>Session Overview</h3>
+                    <div class="report-grid">
+                        <div class="report-item">
+                            <span>Hash Type:</span>
+                            <span>${selectedHashType}</span>
+                        </div>
+                        <div class="report-item">
+                            <span>Wordlist:</span>
+                            <span>${wordlist}</span>
+                        </div>
+                        <div class="report-item">
+                            <span>Rule Set:</span>
+                            <span>${ruleset}</span>
+                        </div>
+                        <div class="report-item">
+                            <span>Time Elapsed:</span>
+                            <span>${displayedTime}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="report-section">
+                    <h3>Performance Metrics</h3>
+                    <div class="report-grid">
+                        <div class="report-item">
+                            <span>Hash Speed:</span>
+                            <span>${hashSpeed}</span>
+                        </div>
+                        <div class="report-item">
+                            <span>Progress:</span>
+                            <span>${progress}</span>
+                        </div>
+                        <div class="report-item">
+                            <span>Device Temperature:</span>
+                            <span>${deviceTemp}</span>
+                        </div>
+                        <div class="report-item">
+                            <span>Success Rate:</span>
+                            <span>${successRate}%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="report-section">
+                    <h3>Results</h3>
+                    <div class="report-grid">
+                        <div class="report-item">
+                            <span>Total Hashes:</span>
+                            <span>${totalHashes}</span>
+                        </div>
+                        <div class="report-item">
+                            <span>Cracked Hashes:</span>
+                            <span>${crackedCount}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="report-section">
+                    <h3>Cracked Hashes</h3>
+                    <div id="reportCrackedHashes">
+                        ${Array.from(document.getElementById('crackedHashesList').children)
+                            .map(child => `<div class="report-item"><span>${child.textContent}</span></div>`)
+                            .join('') || '<div class="report-item"><span>No hashes cracked yet</span></div>'}
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('reportContent').innerHTML = reportHtml;
+            document.getElementById('reportModal').style.display = 'block';
+        }
+
+        function closeReport() {
+            document.getElementById('reportModal').style.display = 'none';
+        }
+
+        // Close report modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('reportModal');
+            if (event.target == modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        function generateDocument() {
+            const styles = Array.from(document.styleSheets)
+                .map(sheet => {
+                    try {
+                        return Array.from(sheet.cssRules)
+                            .map(rule => rule.cssText)
+                            .join('\n');
+                    } catch (e) {
+                        // Skip external stylesheets
+                        return '';
+                    }
+                })
+                .join('\n');
+
+            const reportContent = document.getElementById('reportContent').innerHTML;
+            const now = new Date();
+            const timestamp = now.toISOString().replace(/[:.]/g, '-');
+
+            const htmlContent = `
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>HashBreaker Report - ${timestamp}</title>
+                    <style>
+                        ${styles}
+                        body {
+                            background-color: var(--bg-dark);
+                            color: var(--text-primary);
+                            font-family: 'Courier New', monospace;
+                            margin: 0;
+                            padding: 20px;
+                        }
+                        .report-content {
+                            position: relative;
+                            width: 80%;
+                            margin: 0 auto;
+                            background-color: var(--bg-dark);
+                            border: 1px solid var(--accent);
+                            border-radius: 8px;
+                            padding: 20px;
+                        }
+                        @media print {
+                            body {
+                                background-color: white;
+                            }
+                            .report-content {
+                                width: 100%;
+                                border: none;
+                                padding: 0;
+                            }
+                            .report-section {
+                                break-inside: avoid;
+                                page-break-inside: avoid;
+                            }
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="report-content">
+                        ${reportContent}
+                    </div>
+                </body>
+                </html>
+            `;
+
+            const blob = new Blob([htmlContent], { type: 'text/html' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `hashbreaker-report-${timestamp}.html`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            addOutputLine('Report document generated successfully!', 'success');
+        }
+    </script>
+</body>
+</html> 

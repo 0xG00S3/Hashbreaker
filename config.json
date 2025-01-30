@@ -1,0 +1,9 @@
+{
+    "hashcatPath": "C:\\hashcat\\hashcat.exe",
+    "wordlistsPath": "C:\\hashcat\\wordlists",
+    "rulesPath": "C:\\hashcat\\rules",
+    "hashTypesPath": "C:\\hashcat\\hash_types.txt",
+    "potfilePath": "C:\\hashcat\\hashcat.potfile",
+    "tempPath": "C:\\Windows\\Temp",
+    "workloadProfile": "2"
+}
