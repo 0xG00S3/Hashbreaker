@@ -4,7 +4,7 @@
 
 A modern, web-based GUI for Hashcat that provides an intuitive interface for hash cracking operations. This application combines the power of Hashcat's command-line functionality with a user-friendly web interface, making it easier to manage and monitor hash cracking tasks.
 
-![HashBreaker Hashcat Control Panel](hashcat.png)
+![HashBreaker Hashcat Control Panel](images/hashcat.png)
 
 ## Features
 
