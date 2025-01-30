@@ -75,6 +75,9 @@ python server.py
 http://localhost:5000
 ```
 
+![hashbreaker](https://github.com/user-attachments/assets/eb5e9bb7-7bcb-4528-a66e-aee6e60fe507)
+
+
 3. Configure your paths in the administration panel (⚙️)
 
 4. To crack hashes:
