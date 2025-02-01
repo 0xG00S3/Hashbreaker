@@ -32,6 +32,9 @@ POTFILE_PATH = os.path.join(HASHCAT_DIR, 'hashcat.potfile')
 # Default hash file name
 DEFAULT_HASH_FILE = "crackme.txt"
 
+# Add after the other global variables
+HASH_MAPPING_FILE = 'hash_mappings.json'
+
 # Create a thread-safe Tkinter root
 root = None
 root_lock = threading.Lock()
@@ -140,12 +143,81 @@ def get_example_hash(mode_id):
 # Load hash types on startup
 HASH_TYPES = load_hash_types()
 
+def load_hash_mappings():
+    """Load hash mappings from file"""
+    try:
+        if os.path.exists(HASH_MAPPING_FILE):
+            with open(HASH_MAPPING_FILE, 'r') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"Error loading hash mappings: {str(e)}", file=sys.stderr)
+    return {'usernames': {}, 'full_hashes': {}}
+
+def save_hash_mappings(mappings):
+    """Save hash mappings to file"""
+    try:
+        with open(HASH_MAPPING_FILE, 'w') as f:
+            json.dump(mappings, f, indent=4)
+    except Exception as e:
+        print(f"Error saving hash mappings: {str(e)}", file=sys.stderr)
+
 class PotfileMonitor:
     def __init__(self, potfile_path):
         self.potfile_path = potfile_path
         self.last_position = 0
         self.last_size = 0
         self._stop = False
+        # Load existing mappings
+        self.mappings = load_hash_mappings()
+        self.hash_to_username = self.mappings['usernames']
+        self.hash_to_full = self.mappings['full_hashes']
+        # New dictionary to store cracked passwords
+        self.cracked_hashes = {}
+        self._load_existing_cracked()
+
+    def _load_existing_cracked(self):
+        """Load existing cracked hashes from potfile"""
+        try:
+            if os.path.exists(self.potfile_path):
+                with open(self.potfile_path, 'r') as f:
+                    for line in f:
+                        if ':' in line:
+                            hash_part, password = line.strip().split(':', 1)
+                            self.cracked_hashes[hash_part.lower()] = password
+        except Exception as e:
+            print(f"Error loading existing cracked hashes: {str(e)}", file=sys.stderr)
+
+    def check_precracked_hashes(self, callback):
+        """Check if any loaded hashes were previously cracked"""
+        for ntlm_hash, username in self.hash_to_username.items():
+            if ntlm_hash.lower() in self.cracked_hashes:
+                full_hash = self.hash_to_full.get(ntlm_hash, "")
+                if full_hash:
+                    callback(f"{full_hash}:{self.cracked_hashes[ntlm_hash.lower()]}")
+                else:
+                    callback(f"{username}:{ntlm_hash}:{self.cracked_hashes[ntlm_hash.lower()]}")
+
+    def add_hash_mapping(self, hash_line):
+        """Add a mapping between hash and username from a hash line"""
+        try:
+            if ':' in hash_line:
+                parts = hash_line.strip().split(':')
+                if len(parts) >= 4:  # Format: domain\user:id:LM:NTLM
+                    username = parts[0]  # This includes domain if present
+                    ntlm_hash = parts[3].lower()
+                    self.hash_to_username[ntlm_hash] = username
+                    self.hash_to_full[ntlm_hash] = hash_line.strip()
+                    # Save mappings after each addition
+                    save_hash_mappings({
+                        'usernames': self.hash_to_username,
+                        'full_hashes': self.hash_to_full
+                    })
+                    # Check if this hash was previously cracked
+                    if ntlm_hash in self.cracked_hashes:
+                        return f"{hash_line.strip()}:{self.cracked_hashes[ntlm_hash]}"
+        except Exception as e:
+            print(f"Error parsing hash line: {str(e)}", file=sys.stderr)
+        return None
 
     def start_monitoring(self, callback):
         """Monitor the potfile for changes and call callback with new lines"""
@@ -158,7 +230,17 @@ class PotfileMonitor:
                             f.seek(self.last_position)
                             new_lines = f.readlines()
                             for line in new_lines:
-                                callback(line.strip())
+                                if ':' in line:  # Only process lines with hash:password format
+                                    hash_part = line.strip().split(':')[0].lower()
+                                    username = self.hash_to_username.get(hash_part, "Unknown User")
+                                    full_hash = self.hash_to_full.get(hash_part, "")
+                                    password = line.strip().split(':')[1]
+                                    if full_hash:
+                                        # Return the original hash line plus the cracked password
+                                        callback(f"{full_hash}:{password}")
+                                    else:
+                                        # Fallback if we don't have the full hash line
+                                        callback(f"{username}:{hash_part}:{password}")
                             self.last_position = f.tell()
                         self.last_size = current_size
             except Exception as e:
@@ -313,6 +395,32 @@ def run_hashcat():
             with open(hash_file, 'w') as f:
                 f.write(hashes)
         
+        # Set up potfile monitoring
+        monitor = PotfileMonitor(POTFILE_PATH)
+        output_queue = []
+        
+        def potfile_callback(line):
+            output_queue.append(json.dumps({"type": "cracked", "data": line}) + "\n")
+        
+        # Initialize hash mappings and check for precracked hashes
+        if hashes:
+            for line in hashes.split('\n'):
+                if line.strip():
+                    precracked = monitor.add_hash_mapping(line)
+                    if precracked:
+                        potfile_callback(precracked)
+        else:
+            # If using a hash file, read it to initialize mappings
+            with open(hash_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        precracked = monitor.add_hash_mapping(line)
+                        if precracked:
+                            potfile_callback(precracked)
+        
+        # Check for any other precracked hashes
+        monitor.check_precracked_hashes(potfile_callback)
+
         if custom_command:
             # Split the custom command and validate
             cmd = custom_command.split()
@@ -389,13 +497,6 @@ def run_hashcat():
 
         current_process = process
 
-        # Set up potfile monitoring
-        monitor = PotfileMonitor(POTFILE_PATH)
-        output_queue = []
-
-        def potfile_callback(line):
-            output_queue.append(json.dumps({"type": "cracked", "data": line}) + "\n")
-        
         # Start monitoring in a separate thread
         monitor_thread = threading.Thread(
             target=monitor.start_monitoring,
@@ -613,6 +714,16 @@ def serve_png(filename):
 @app.route('/styles.css')
 def serve_css():
     return send_file('styles.css', mimetype='text/css')
+
+@app.route('/api/clear_dictionary', methods=['POST'])
+def clear_dictionary():
+    """Clear the hash mappings dictionary"""
+    try:
+        if os.path.exists(HASH_MAPPING_FILE):
+            os.remove(HASH_MAPPING_FILE)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.teardown_request
 def cleanup_request(exception=None):

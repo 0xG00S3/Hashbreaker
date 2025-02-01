@@ -1,9 +1,9 @@
 {
-    "hashcatPath": "C:\\hashcat\\hashcat.exe",
-    "wordlistsPath": "C:\\hashcat\\wordlists",
-    "rulesPath": "C:\\hashcat\\rules",
-    "hashTypesPath": "C:\\hashcat\\hash_types.txt",
-    "potfilePath": "C:\\hashcat\\hashcat.potfile",
+    "hashcatPath": "C:\\dontscan\\hashcat\\hashcat.exe",
+    "wordlistsPath": "C:\\dontscan\\hashcat\\wordlists",
+    "rulesPath": "C:\\dontscan\\hashcat\\rules",
+    "hashTypesPath": "C:\\dontscan\\hashcat\\hash_types.txt",
+    "potfilePath": "C:\\dontscan\\hashcat\\hashcat.potfile",
     "tempPath": "C:\\Windows\\Temp",
     "workloadProfile": "2"
 }

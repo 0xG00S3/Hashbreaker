@@ -60,6 +60,13 @@
                             </div>
                         </div>
                         <div class="path-item">
+                            <label><strong>Hash History Dictionary:</strong></label>
+                            <div class="path-input">
+                                <button onclick="clearHashDictionary()" type="button" style="background-color: var(--danger);">Clear Hash History</button>
+                                <span id="dictionaryStatus" style="margin-left: 10px; font-size: 0.9em;"></span>
+                            </div>
+                        </div>
+                        <div class="path-item">
                             <label><strong>Temporary Files Directory:</strong></label>
                             <div class="path-input">
                                 <input type="text" id="tempPath" placeholder="Path for temporary hash files">
@@ -565,12 +572,34 @@
             const crackedHashesList = document.getElementById('crackedHashesList');
             const hashElement = document.createElement('div');
             hashElement.className = 'cracked-hash';
-            hashElement.textContent = hash;
+            
+            // Parse the hash string
+            // Format will be either:
+            // username:rid:lm_hash:ntlm_hash:password
+            // or
+            // username:hash:password (fallback format)
+            const parts = hash.split(':');
+            let username, ntlmHash, password;
+            
+            if (parts.length >= 5) {
+                // Full hash line format
+                username = parts[0];
+                ntlmHash = parts[3];
+                password = parts[parts.length - 1];
+            } else {
+                // Fallback format
+                username = parts[0];
+                ntlmHash = parts[1];
+                password = parts[2];
+            }
+            
+            // Create a formatted display with username, hash, and password
+            hashElement.innerHTML = `<strong>${username}</strong>:${ntlmHash}:${password}`;
             crackedHashesList.appendChild(hashElement);
             crackedHashesList.scrollTop = crackedHashesList.scrollHeight;
 
             // Add success message to output window
-            addOutputLine(`SUCCESSFULLY CRACKED HASH!! - ${hash}`, 'success');
+            addOutputLine(`SUCCESSFULLY CRACKED HASH!! - ${username}:${ntlmHash}:${password}`, 'success');
 
             // Update status
             const crackedCount = crackedHashesList.children.length;
@@ -579,7 +608,7 @@
 
             // Show temporary success message
             const recentCrack = document.getElementById('recentCrack');
-            recentCrack.textContent = `Just Cracked: ${hash}`;
+            recentCrack.textContent = `Just Cracked: ${username}:${ntlmHash}:${password}`;
             recentCrack.classList.add('show');
             
             // Remove message after 5 seconds
@@ -975,23 +1004,9 @@
                             <span>Time Elapsed:</span>
                             <span>${displayedTime}</span>
                         </div>
-                    </div>
-                </div>
-
-                <div class="report-section">
-                    <h3>Performance Metrics</h3>
-                    <div class="report-grid">
                         <div class="report-item">
                             <span>Hash Speed:</span>
                             <span>${hashSpeed}</span>
-                        </div>
-                        <div class="report-item">
-                            <span>Progress:</span>
-                            <span>${progress}</span>
-                        </div>
-                        <div class="report-item">
-                            <span>Device Temperature:</span>
-                            <span>${deviceTemp}</span>
                         </div>
                         <div class="report-item">
                             <span>Success Rate:</span>
@@ -1018,13 +1033,14 @@
                     <h3>Cracked Hashes</h3>
                     <div id="reportCrackedHashes">
                         ${Array.from(document.getElementById('crackedHashesList').children)
-                            .map(child => `<div class="report-item"><span>${child.textContent}</span></div>`)
-                            .join('') || '<div class="report-item"><span>No hashes cracked yet</span></div>'}
+                            .map(child => `<div class="report-item"><span>${child.innerHTML}</span></div>`)
+                            .join('\n')}
                     </div>
                 </div>
             `;
 
-            document.getElementById('reportContent').innerHTML = reportHtml;
+            const reportContent = document.querySelector('.report-content');
+            reportContent.innerHTML = reportHtml;
             document.getElementById('reportModal').style.display = 'block';
         }
 
@@ -1118,6 +1134,34 @@
             document.body.removeChild(a);
             
             addOutputLine('Report document generated successfully!', 'success');
+        }
+
+        // Add the new clearHashDictionary function
+        async function clearHashDictionary() {
+            if (!confirm('Are you sure you want to clear the hash history dictionary? This will remove all stored username-hash mappings.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/clear_dictionary', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                const data = await response.json();
+                if (data.success) {
+                    addOutputLine('Hash history dictionary cleared successfully', 'success');
+                    document.getElementById('dictionaryStatus').textContent = '0 stored mappings';
+                    // Clear the cracked hashes display if any were preloaded
+                    document.getElementById('crackedHashesList').innerHTML = '';
+                    updateCrackingStatus(0, document.getElementById('totalHashes').textContent);
+                } else {
+                    addOutputLine('Error clearing dictionary: ' + data.error, 'error');
+                }
+            } catch (error) {
+                addOutputLine('Error clearing dictionary: ' + error.message, 'error');
+            }
         }
     </script>
 </body>
