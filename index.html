@@ -105,8 +105,6 @@
             <div class="hash-input">
                 <textarea id="hashInput" placeholder="Enter your hashes here (one per line) or drag and drop a file"></textarea>
                 <div class="drag-message">Drop file here</div>
-                <button onclick="saveHashesToFile()" style="margin-top: 10px;">Save Hashes to File</button>
-                <div id="savedFilePath" style="color: var(--accent); margin-top: 5px; font-size: 0.9em; font-weight: bold;"></div>
             </div>
 
             <div class="file-upload">
@@ -187,8 +185,10 @@
     <div id="reportModal" class="report-modal">
         <div class="report-content">
             <span class="report-close" onclick="closeReport()">&times;</span>
-            <div class="button-group" style="position: absolute; top: 10px; right: 50px;">
-                <button onclick="generateDocument()" class="save-button">📄 Generate Document</button>
+            <div class="report-actions" style="position: sticky; top: 0; background: var(--bg-dark); padding: 10px 0; border-bottom: 1px solid var(--accent); margin-bottom: 20px; z-index: 100; display: flex; justify-content: flex-end; gap: 10px;">
+                <button onclick="generateDocument()" class="save-button" style="background-color: var(--accent); color: #000000; padding: 8px 15px; border-radius: 4px; display: flex; align-items: center; gap: 5px;">
+                    <span style="font-size: 1.2em;">📄</span> Export as HTML
+                </button>
             </div>
             <div id="reportContent"></div>
         </div>
@@ -198,6 +198,31 @@
         let currentHashFile = null;
         let isRunning = false;
         let hashTypes = {};  // Store hash types globally
+        let startTime = null;  // Track when hashcat starts
+        let elapsedTime = '00:00:00';  // Store elapsed time
+
+        // Function to format elapsed time
+        function formatElapsedTime(milliseconds) {
+            if (!milliseconds) return '00:00:00';
+            const seconds = Math.floor(milliseconds / 1000);
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const remainingSeconds = seconds % 60;
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+        }
+
+        // Function to update elapsed time
+        function updateElapsedTime() {
+            if (startTime && isRunning) {
+                const now = new Date();
+                const timeDiff = now - startTime;
+                elapsedTime = formatElapsedTime(timeDiff);
+                document.getElementById('estimatedTime').textContent = elapsedTime;
+            }
+        }
+
+        // Add after the other global variables
+        let elapsedTimeInterval = null;
 
         // Load all options on page load
         Promise.all([
@@ -350,16 +375,8 @@
             const sanitizedWordlist = wordlist.replace(/[^a-zA-Z0-9._-]/g, '');
             const sanitizedRuleset = ruleset ? ruleset.replace(/[^a-zA-Z0-9._-]/g, '') : '';
 
-            let hashPath;
-            if (currentHashFile) {
-                hashPath = currentHashFile;  // Use the full path from saved file
-            } else {
-                const hashFile = document.getElementById('hashFile').files[0];
-                hashPath = hashFile ? hashFile.name : '{NO HASH FILE - CLICK SAVE HASHES FIRST}';
-            }
-
-            // Build command with sanitized inputs
-            let cmd = `hashcat.exe -w ${sanitizedWorkMode} -m ${sanitizedHashType} -a 0 --status --hwmon-disable -O ${hashPath} wordlists/${sanitizedWordlist}`;
+            // Build command with sanitized inputs and use crackme.txt as the default hash file
+            let cmd = `hashcat.exe -w ${sanitizedWorkMode} -m ${sanitizedHashType} -a 0 --status --hwmon-disable -O crackme.txt wordlists/${sanitizedWordlist}`;
             if (sanitizedRuleset) {
                 cmd += ` -r rules/${sanitizedRuleset}`;
             }
@@ -467,7 +484,9 @@
             } finally {
                 isRunning = false;
                 updateButtons();
-                updateCrackingStatus(0, 0);  // Reset status to idle
+                // Stop timing
+                clearInterval(elapsedTimeInterval);
+                updateCrackingStatus(document.getElementById('crackedCount').textContent, document.getElementById('totalHashes').textContent);
             }
         }
 
@@ -478,19 +497,26 @@
 
         async function runHashcat() {
             const hashType = document.getElementById('hashType').value;
-            const hashInput = document.getElementById('hashInput').value;
+            const hashInput = document.getElementById('hashInput').value.trim();
             const wordlist = document.getElementById('wordlist').value;
             const ruleset = document.getElementById('ruleset').value;
-            const customCommand = document.getElementById('commandPreview').value;
-            const hashFile = document.getElementById('hashFile').files[0];
+            let customCommand = document.getElementById('commandPreview').value;
 
+            // Validate inputs
             if (!hashType) {
                 addOutputLine('Please select a hash type!', 'error');
                 return;
             }
 
-            if (!hashInput.trim() && !hashFile) {
+            if (!hashInput) {
                 addOutputLine('Please enter hashes or upload a file!', 'error');
+                return;
+            }
+
+            // Count non-empty lines to verify we have hashes to crack
+            const hashCount = hashInput.split('\n').filter(line => line.trim()).length;
+            if (hashCount === 0) {
+                addOutputLine('No valid hashes found to crack!', 'error');
                 return;
             }
 
@@ -499,25 +525,35 @@
                 return;
             }
 
-            if (!hashFile && !currentHashFile) {
-                addOutputLine('Please save hashes to a file first!', 'error');
-                return;
-            }
-
-            // Clear previous output content only
+            // Clear previous output content
             const outputContent = document.getElementById('outputContent');
             outputContent.innerHTML = '';
             document.getElementById('crackedHashesList').innerHTML = '';
             
-            const hashCount = hashInput.trim().split('\n').filter(line => line.trim()).length;
-            isRunning = true;
-            updateButtons();
-            updateCrackingStatus(0, hashCount);
-
-            addOutputLine('Starting Hashcat...', 'info');
-            addOutputLine('Using command: ' + customCommand, 'info');
-
             try {
+                // Save hashes to temporary file automatically
+                addOutputLine('Saving hashes to temporary file...', 'info');
+                const savedFile = await saveHashes(hashInput);
+                currentHashFile = savedFile;
+                addOutputLine('Hashes saved successfully!', 'success');
+                
+                // Replace the placeholder in the command with the actual hash file path
+                customCommand = customCommand.replace('{HASH_FILE}', currentHashFile);
+                
+                isRunning = true;
+                updateButtons();
+                updateCrackingStatus(0, hashCount);
+
+                // Start timing
+                startTime = new Date();
+                if (elapsedTimeInterval) {
+                    clearInterval(elapsedTimeInterval);
+                }
+                elapsedTimeInterval = setInterval(updateElapsedTime, 1000);
+
+                addOutputLine('Starting Hashcat...', 'info');
+                addOutputLine('Using command: ' + customCommand, 'info');
+
                 const response = await fetch('/api/run_hashcat', {
                     method: 'POST',
                     headers: {
@@ -564,51 +600,78 @@
             } finally {
                 isRunning = false;
                 updateButtons();
+                // Stop timing
+                clearInterval(elapsedTimeInterval);
                 updateCrackingStatus(document.getElementById('crackedCount').textContent, document.getElementById('totalHashes').textContent);
+                
+                // Clean up temporary hash file
+                if (currentHashFile) {
+                    try {
+                        await fetch('/api/cleanup_hashfile', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                hashFile: currentHashFile
+                            })
+                        });
+                        currentHashFile = null;
+                        addOutputLine('Cleaned up temporary hash file', 'info');
+                    } catch (error) {
+                        console.error('Error cleaning up hash file:', error);
+                    }
+                }
             }
         }
 
         function addCrackedHash(hash) {
+            console.log('Adding cracked hash:', hash);
             const crackedHashesList = document.getElementById('crackedHashesList');
             const hashElement = document.createElement('div');
             hashElement.className = 'cracked-hash';
             
             // Parse the hash string
-            // Format will be either:
-            // username:rid:lm_hash:ntlm_hash:password
-            // or
-            // username:hash:password (fallback format)
             const parts = hash.split(':');
-            let username, ntlmHash, password;
+            console.log('Hash parts:', parts);
             
-            if (parts.length >= 5) {
-                // Full hash line format
-                username = parts[0];
-                ntlmHash = parts[3];
-                password = parts[parts.length - 1];
+            // Handle different formats:
+            // Format 1: username:hash:password
+            // Format 2: hash:password
+            let displayText;
+            if (parts.length >= 3) {
+                // Format: username:hash:password
+                const username = parts[0];
+                const ntlmHash = parts[1];
+                const password = parts[2];
+                displayText = `${ntlmHash}:${password}`;
+            } else if (parts.length === 2) {
+                // Format: hash:password
+                const ntlmHash = parts[0];
+                const password = parts[1];
+                displayText = `${ntlmHash}:${password}`;
             } else {
-                // Fallback format
-                username = parts[0];
-                ntlmHash = parts[1];
-                password = parts[2];
+                console.error('Invalid hash format:', hash);
+                return;
             }
             
-            // Create a formatted display with username, hash, and password
-            hashElement.innerHTML = `<strong>${username}</strong>:${ntlmHash}:${password}`;
+            console.log('Display text:', displayText);
+            hashElement.textContent = displayText;
             crackedHashesList.appendChild(hashElement);
             crackedHashesList.scrollTop = crackedHashesList.scrollHeight;
 
             // Add success message to output window
-            addOutputLine(`SUCCESSFULLY CRACKED HASH!! - ${username}:${ntlmHash}:${password}`, 'success');
+            addOutputLine(`SUCCESSFULLY CRACKED HASH!! - ${displayText}`, 'success');
 
             // Update status
             const crackedCount = crackedHashesList.children.length;
             const totalHashes = document.getElementById('totalHashes').textContent;
+            console.log('Updating status - Cracked:', crackedCount, 'Total:', totalHashes);
             updateCrackingStatus(crackedCount, totalHashes);
 
             // Show temporary success message
             const recentCrack = document.getElementById('recentCrack');
-            recentCrack.textContent = `Just Cracked: ${username}:${ntlmHash}:${password}`;
+            recentCrack.textContent = `Just Cracked: ${displayText}`;
             recentCrack.classList.add('show');
             
             // Remove message after 5 seconds
@@ -769,7 +832,7 @@
         }
 
         async function clearPotfile() {
-            if (!confirm('Are you sure you want to clear the potfile? This will delete all previously cracked hashes.')) {
+            if (!confirm('Are you sure you want to clear the potfile? This will delete all previously cracked hashes. A backup will be made before clearing.')) {
                 return;
             }
 
@@ -783,6 +846,9 @@
                 const data = await response.json();
                 if (data.success) {
                     addOutputLine('Potfile cleared successfully', 'success');
+                    if (data.message) {
+                        addOutputLine(data.message, 'info');
+                    }
                 } else {
                     addOutputLine('Error clearing potfile: ' + data.error, 'error');
                 }
@@ -792,7 +858,11 @@
         }
 
         // Load configuration when page loads
-        document.addEventListener('DOMContentLoaded', loadConfiguration);
+        document.addEventListener('DOMContentLoaded', function() {
+            setupDragAndDrop();
+            loadConfiguration();
+            updateCrackingStatus(0, 0);
+        });
 
         async function saveHashcatOutput() {
             const outputWindow = document.getElementById('outputWindow');
@@ -839,12 +909,6 @@
             crackingStatus.textContent = isRunning ? 'Running' : 'Idle';
             crackingStatus.className = isRunning ? 'status-running' : '';
         }
-
-        // Add status initialization when page loads
-        document.addEventListener('DOMContentLoaded', function() {
-            loadConfiguration();
-            updateCrackingStatus(0, 0);  // Initialize status as idle
-        });
 
         function clearHashcatOutput() {
             const outputContent = document.getElementById('outputContent');
@@ -949,16 +1013,8 @@
             }
         }
 
-        // Initialize drag and drop when the document is ready
-        document.addEventListener('DOMContentLoaded', function() {
-            setupDragAndDrop();
-            loadConfiguration();
-            updateCrackingStatus(0, 0);
-        });
-
         function generateReport() {
             const now = new Date();
-            const elapsedTime = document.getElementById('estimatedTime').textContent;
             const hashSpeed = document.getElementById('hashSpeed').textContent;
             const progress = document.getElementById('progressPercent').textContent;
             const deviceTemp = document.getElementById('deviceTemp').textContent;
@@ -976,65 +1032,70 @@
                 successRate = ((crackedCount / totalHashes) * 100).toFixed(2);
             }
 
-            // Format time elapsed
-            const displayedTime = elapsedTime === '--:--:--' ? 'In Progress' : elapsedTime;
-
             const reportHtml = `
-                <div class="report-header">
-                    <h2>HashBreaker Cracking Report</h2>
-                    <p>Generated on ${now.toLocaleString()}</p>
+                <span class="report-close" onclick="closeReport()">&times;</span>
+                <div class="report-actions" style="position: sticky; top: 0; background: var(--bg-dark); padding: 10px 0; border-bottom: 1px solid var(--accent); margin-bottom: 20px; z-index: 100; display: flex; justify-content: flex-end; gap: 10px;">
+                    <button onclick="generateDocument()" class="save-button" style="background-color: var(--accent); color: #000000; padding: 8px 15px; border-radius: 4px; display: flex; align-items: center; gap: 5px;">
+                        <span style="font-size: 1.2em;">📄</span> Export as HTML
+                    </button>
                 </div>
+                <div id="reportContent">
+                    <div class="report-header">
+                        <h2>HashBreaker Cracking Report</h2>
+                        <p>Generated on ${now.toLocaleString()}</p>
+                    </div>
 
-                <div class="report-section">
-                    <h3>Session Overview</h3>
-                    <div class="report-grid">
-                        <div class="report-item">
-                            <span>Hash Type:</span>
-                            <span>${selectedHashType}</span>
-                        </div>
-                        <div class="report-item">
-                            <span>Wordlist:</span>
-                            <span>${wordlist}</span>
-                        </div>
-                        <div class="report-item">
-                            <span>Rule Set:</span>
-                            <span>${ruleset}</span>
-                        </div>
-                        <div class="report-item">
-                            <span>Time Elapsed:</span>
-                            <span>${displayedTime}</span>
-                        </div>
-                        <div class="report-item">
-                            <span>Hash Speed:</span>
-                            <span>${hashSpeed}</span>
-                        </div>
-                        <div class="report-item">
-                            <span>Success Rate:</span>
-                            <span>${successRate}%</span>
+                    <div class="report-section">
+                        <h3>Session Overview</h3>
+                        <div class="report-grid">
+                            <div class="report-item">
+                                <span>Hash Type:</span>
+                                <span>${selectedHashType}</span>
+                            </div>
+                            <div class="report-item">
+                                <span>Wordlist:</span>
+                                <span>${wordlist}</span>
+                            </div>
+                            <div class="report-item">
+                                <span>Rule Set:</span>
+                                <span>${ruleset}</span>
+                            </div>
+                            <div class="report-item">
+                                <span>Time Elapsed:</span>
+                                <span>${elapsedTime}</span>
+                            </div>
+                            <div class="report-item">
+                                <span>Hash Speed:</span>
+                                <span>${hashSpeed}</span>
+                            </div>
+                            <div class="report-item">
+                                <span>Success Rate:</span>
+                                <span>${successRate}%</span>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="report-section">
-                    <h3>Results</h3>
-                    <div class="report-grid">
-                        <div class="report-item">
-                            <span>Total Hashes:</span>
-                            <span>${totalHashes}</span>
-                        </div>
-                        <div class="report-item">
-                            <span>Cracked Hashes:</span>
-                            <span>${crackedCount}</span>
+                    <div class="report-section">
+                        <h3>Results</h3>
+                        <div class="report-grid">
+                            <div class="report-item">
+                                <span>Total Hashes:</span>
+                                <span>${totalHashes}</span>
+                            </div>
+                            <div class="report-item">
+                                <span>Cracked Hashes:</span>
+                                <span>${crackedCount}</span>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <div class="report-section">
-                    <h3>Cracked Hashes</h3>
-                    <div id="reportCrackedHashes">
-                        ${Array.from(document.getElementById('crackedHashesList').children)
-                            .map(child => `<div class="report-item"><span>${child.innerHTML}</span></div>`)
-                            .join('\n')}
+                    <div class="report-section">
+                        <h3>Cracked Hashes</h3>
+                        <div id="reportCrackedHashes">
+                            ${Array.from(document.getElementById('crackedHashesList').children)
+                                .map(child => `<div class="report-item"><span>${child.innerHTML}</span></div>`)
+                                .join('\n')}
+                        </div>
                     </div>
                 </div>
             `;

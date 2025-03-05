@@ -13,6 +13,7 @@ import tkinter as tk
 from tkinter import filedialog
 import queue
 from werkzeug.utils import secure_filename
+import shutil
 
 app = Flask(__name__, static_url_path='')
 
@@ -173,6 +174,10 @@ class PotfileMonitor:
         self.hash_to_full = self.mappings['full_hashes']
         # New dictionary to store cracked passwords
         self.cracked_hashes = {}
+        # Track current session hashes
+        self.current_session_hashes = set()
+        # Track which hashes we've already reported
+        self.reported_hashes = set()
         self._load_existing_cracked()
 
     def _load_existing_cracked(self):
@@ -184,37 +189,73 @@ class PotfileMonitor:
                         if ':' in line:
                             hash_part, password = line.strip().split(':', 1)
                             self.cracked_hashes[hash_part.lower()] = password
+                print(f"Loaded {len(self.cracked_hashes)} cracked hashes from potfile", file=sys.stderr)
+                # Debug: Print first few cracked hashes
+                for i, (hash_part, password) in enumerate(list(self.cracked_hashes.items())[:5]):
+                    print(f"Sample cracked hash {i}: {hash_part}:{password}", file=sys.stderr)
         except Exception as e:
             print(f"Error loading existing cracked hashes: {str(e)}", file=sys.stderr)
 
+    def _report_hash(self, ntlm_hash, password, callback):
+        """Report a cracked hash if we haven't already"""
+        if ntlm_hash not in self.reported_hashes:
+            username = self.hash_to_username.get(ntlm_hash, "Unknown User")
+            full_hash = self.hash_to_full.get(ntlm_hash, "")
+            if full_hash:
+                callback(f"{full_hash}:{password}")
+            else:
+                callback(f"{username}:{ntlm_hash}:{password}")
+            self.reported_hashes.add(ntlm_hash)
+
     def check_precracked_hashes(self, callback):
         """Check if any loaded hashes were previously cracked"""
-        for ntlm_hash, username in self.hash_to_username.items():
-            if ntlm_hash.lower() in self.cracked_hashes:
-                full_hash = self.hash_to_full.get(ntlm_hash, "")
-                if full_hash:
-                    callback(f"{full_hash}:{self.cracked_hashes[ntlm_hash.lower()]}")
-                else:
-                    callback(f"{username}:{ntlm_hash}:{self.cracked_hashes[ntlm_hash.lower()]}")
+        print(f"Checking {len(self.current_session_hashes)} hashes against {len(self.cracked_hashes)} cracked hashes", file=sys.stderr)
+        # Debug: Print first few session hashes
+        for i, hash_val in enumerate(list(self.current_session_hashes)[:5]):
+            print(f"Sample session hash {i}: {hash_val}", file=sys.stderr)
+        
+        for ntlm_hash in self.current_session_hashes:
+            ntlm_hash_lower = ntlm_hash.lower()
+            print(f"Checking hash: {ntlm_hash_lower}", file=sys.stderr)
+            if ntlm_hash_lower in self.cracked_hashes:
+                print(f"Found match for {ntlm_hash_lower}", file=sys.stderr)
+                self._report_hash(ntlm_hash_lower, self.cracked_hashes[ntlm_hash_lower], callback)
 
     def add_hash_mapping(self, hash_line):
         """Add a mapping between hash and username from a hash line"""
         try:
+            hash_line = hash_line.strip()
             if ':' in hash_line:
-                parts = hash_line.strip().split(':')
+                parts = hash_line.split(':')
                 if len(parts) >= 4:  # Format: domain\user:id:LM:NTLM
                     username = parts[0]  # This includes domain if present
-                    ntlm_hash = parts[3].lower()
-                    self.hash_to_username[ntlm_hash] = username
-                    self.hash_to_full[ntlm_hash] = hash_line.strip()
-                    # Save mappings after each addition
-                    save_hash_mappings({
-                        'usernames': self.hash_to_username,
-                        'full_hashes': self.hash_to_full
-                    })
-                    # Check if this hash was previously cracked
-                    if ntlm_hash in self.cracked_hashes:
-                        return f"{hash_line.strip()}:{self.cracked_hashes[ntlm_hash]}"
+                    ntlm_hash = parts[3].lower()  # Convert to lowercase immediately
+                else:
+                    # Treat the first part as the hash if it looks like an NTLM hash
+                    ntlm_hash = parts[0].lower()
+                    username = "Unknown User"
+            else:
+                # Single hash format
+                ntlm_hash = hash_line.lower()
+                username = "Unknown User"
+
+            print(f"Adding hash mapping for {username}: {ntlm_hash}", file=sys.stderr)
+            self.hash_to_username[ntlm_hash] = username
+            self.hash_to_full[ntlm_hash] = hash_line
+            # Add to current session hashes
+            self.current_session_hashes.add(ntlm_hash)
+            # Save mappings after each addition
+            save_hash_mappings({
+                'usernames': self.hash_to_username,
+                'full_hashes': self.hash_to_full
+            })
+            # Check if this hash was previously cracked
+            if ntlm_hash in self.cracked_hashes:
+                print(f"Found precracked hash for {username}: {ntlm_hash} = {self.cracked_hashes[ntlm_hash]}", file=sys.stderr)
+                self._report_hash(ntlm_hash, self.cracked_hashes[ntlm_hash], lambda x: None)  # Add to reported set but don't callback yet
+                return f"{username}:{ntlm_hash}:{self.cracked_hashes[ntlm_hash]}"
+            else:
+                print(f"Hash {ntlm_hash} not found in cracked hashes", file=sys.stderr)
         except Exception as e:
             print(f"Error parsing hash line: {str(e)}", file=sys.stderr)
         return None
@@ -232,15 +273,14 @@ class PotfileMonitor:
                             for line in new_lines:
                                 if ':' in line:  # Only process lines with hash:password format
                                     hash_part = line.strip().split(':')[0].lower()
-                                    username = self.hash_to_username.get(hash_part, "Unknown User")
-                                    full_hash = self.hash_to_full.get(hash_part, "")
-                                    password = line.strip().split(':')[1]
-                                    if full_hash:
-                                        # Return the original hash line plus the cracked password
-                                        callback(f"{full_hash}:{password}")
+                                    print(f"New cracked hash found: {hash_part}", file=sys.stderr)
+                                    # Only process if it's one of our target hashes
+                                    if hash_part in self.current_session_hashes:
+                                        print(f"Hash {hash_part} matches one of our session hashes", file=sys.stderr)
+                                        password = line.strip().split(':')[1]
+                                        self._report_hash(hash_part, password, callback)
                                     else:
-                                        # Fallback if we don't have the full hash line
-                                        callback(f"{username}:{hash_part}:{password}")
+                                        print(f"Hash {hash_part} not in our session hashes", file=sys.stderr)
                             self.last_position = f.tell()
                         self.last_size = current_size
             except Exception as e:
@@ -356,8 +396,30 @@ def validate_hashcat_args(args):
     """Validate hashcat command arguments for security"""
     # List of allowed hashcat arguments
     allowed_args = {
-        '-m', '-a', '-w', '--status', '--hwmon-disable', '-O', '-r',
-        # Add other allowed hashcat arguments here
+        # Basic options
+        '-m', '-a', '-w', '-O', '-n', '-u', '-S',
+        '--status', '--hwmon-disable', '--self-test-disable',
+        
+        # Attack mode specific
+        '-r', '--rules-file',  # Rules
+        '-1', '-2', '-3', '-4',  # Custom charsets
+        '--increment', '--increment-min', '--increment-max',  # Increment mode
+        '--custom-charset1', '--custom-charset2', '--custom-charset3', '--custom-charset4',
+        
+        # Performance
+        '--opencl-device-types', '--workload-profile',
+        '--gpu-temp-disable', '--gpu-temp-abort', '--gpu-temp-retain',
+        
+        # Input/Output
+        '--username', '--separator', '--show', '--left', '--potfile-disable',
+        '--debug-mode', '--debug-file', '--induction-dir', '--outfile',
+        '--outfile-format', '--outfile-autohex-disable',
+        
+        # Resources
+        '--force', '--benchmark', '--benchmark-all', '--speed-only',
+        '--progress-only', '--machine-readable', '--keep-guessing',
+        '--restore', '--restore-file-path', '--restore-disable',
+        '--session', '--runtime', '--hash-type'
     }
     
     # Check each argument
@@ -394,31 +456,40 @@ def run_hashcat():
             hash_file = os.path.join(TEMP_DIR, DEFAULT_HASH_FILE)
             with open(hash_file, 'w') as f:
                 f.write(hashes)
+            print(f"Created new hash file at {hash_file}", file=sys.stderr)
         
         # Set up potfile monitoring
         monitor = PotfileMonitor(POTFILE_PATH)
         output_queue = []
         
         def potfile_callback(line):
+            print(f"Received callback with line: {line}", file=sys.stderr)
             output_queue.append(json.dumps({"type": "cracked", "data": line}) + "\n")
         
         # Initialize hash mappings and check for precracked hashes
         if hashes:
+            print(f"Processing {len(hashes.split())} input hashes", file=sys.stderr)
             for line in hashes.split('\n'):
                 if line.strip():
+                    print(f"Processing hash line: {line}", file=sys.stderr)
                     precracked = monitor.add_hash_mapping(line)
                     if precracked:
+                        print(f"Found precracked hash: {precracked}", file=sys.stderr)
                         potfile_callback(precracked)
         else:
             # If using a hash file, read it to initialize mappings
+            print(f"Reading hashes from file: {hash_file}", file=sys.stderr)
             with open(hash_file, 'r') as f:
                 for line in f:
                     if line.strip():
+                        print(f"Processing hash line from file: {line}", file=sys.stderr)
                         precracked = monitor.add_hash_mapping(line)
                         if precracked:
+                            print(f"Found precracked hash: {precracked}", file=sys.stderr)
                             potfile_callback(precracked)
         
         # Check for any other precracked hashes
+        print("Checking for precracked hashes...", file=sys.stderr)
         monitor.check_precracked_hashes(potfile_callback)
 
         if custom_command:
@@ -698,11 +769,23 @@ def clear_potfile():
         if not os.path.exists(POTFILE_PATH):
             return jsonify({"success": True, "message": "Potfile doesn't exist"})
         
+        # Create backup directory if it doesn't exist
+        backup_dir = os.path.join(os.path.dirname(POTFILE_PATH), 'potfile_backups')
+        if not os.path.exists(backup_dir):
+            os.makedirs(backup_dir)
+            
+        # Create backup filename with timestamp
+        timestamp = time.strftime('%Y%m%d-%H%M%S')
+        backup_path = os.path.join(backup_dir, f'hashcat-{timestamp}.backup.potfile')
+        
+        # Copy current potfile to backup
+        shutil.copy2(POTFILE_PATH, backup_path)
+        
         # Clear the potfile
         with open(POTFILE_PATH, 'w') as f:
             f.write('')  # Write empty string to clear the file
             
-        return jsonify({"success": True})
+        return jsonify({"success": True, "message": f"Potfile backed up to {backup_path}"})
     except Exception as e:
         print(f"Error clearing potfile: {str(e)}", file=sys.stderr)
         return jsonify({"success": False, "error": str(e)})
@@ -723,6 +806,28 @@ def clear_dictionary():
             os.remove(HASH_MAPPING_FILE)
         return jsonify({"success": True})
     except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route('/api/cleanup_hashfile', methods=['POST'])
+def cleanup_hashfile():
+    """Clean up a specific temporary hash file"""
+    try:
+        data = request.json
+        hash_file = data.get('hashFile')
+        
+        if not hash_file:
+            return jsonify({"error": "No hash file specified"}), 400
+            
+        # Validate the file path is within the temp directory
+        if not os.path.normpath(hash_file).startswith(os.path.normpath(TEMP_DIR)):
+            return jsonify({"error": "Invalid file path"}), 400
+            
+        if os.path.exists(hash_file):
+            os.remove(hash_file)
+            return jsonify({"success": True, "message": "Hash file cleaned up"})
+        return jsonify({"success": True, "message": "File already removed"})
+    except Exception as e:
+        print(f"Error cleaning up hash file: {str(e)}", file=sys.stderr)
         return jsonify({"success": False, "error": str(e)})
 
 @app.teardown_request
